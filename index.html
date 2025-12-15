@@ -8,8 +8,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     
-    <!-- Appwrite SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/appwrite@13.0.0"></script>
+    <!-- Firebase SDKs (Compat version for simple HTML usage) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
     <style>
         :root {
@@ -275,7 +277,7 @@
                     <label class="input-label">Email</label>
                 </div>
                 <div class="input-group">
-                    <input type="password" id="signup-password" class="input-field" required minlength="8">
+                    <input type="password" id="signup-password" class="input-field" required minlength="6">
                     <label class="input-label">Password</label>
                 </div>
                 <button type="submit" class="btn">Sign Up</button>
@@ -339,21 +341,22 @@
 
     <script>
         // ==========================================
-        // CONFIGURATION & SETUP
+        // FIREBASE CONFIGURATION
         // ==========================================
-        const CONFIG = {
-            endpoint: 'https://nyc.cloud.appwrite.io/v1',
-            projectId: '6940258800299988d182',
-            dbId: 'notesDB',
-            collectionId: 'notes'
+        const firebaseConfig = {
+            apiKey: "AIzaSyD_TYYL0iwd9ATc0_32hEI-xivCQ_P-Aw4",
+            authDomain: "rikiapp-3f4ac.firebaseapp.com",
+            databaseURL: "https://rikiapp-3f4ac-default-rtdb.firebaseio.com",
+            projectId: "rikiapp-3f4ac",
+            storageBucket: "rikiapp-3f4ac.firebasestorage.app",
+            messagingSenderId: "444302999584",
+            appId: "1:444302999584:web:987e905347293e6b137c45"
         };
 
-        const client = new Appwrite.Client()
-            .setEndpoint(CONFIG.endpoint)
-            .setProject(CONFIG.projectId);
-
-        const account = new Appwrite.Account(client);
-        const databases = new Appwrite.Databases(client);
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        const firebaseAuth = firebase.auth();
 
         // ==========================================
         // STATE MANAGEMENT
@@ -362,6 +365,7 @@
             user: null,
             notes: [],
             currentNote: null,
+            currentNoteId: null,
             isEditing: false
         };
 
@@ -388,9 +392,6 @@
             closeModals: () => {
                 document.querySelectorAll('.modal-overlay').forEach(el => el.classList.remove('active'));
                 document.getElementById('passcode-input').value = '';
-            },
-            toggleLoader: (show) => {
-                // Simple inline loader logic if needed
             }
         };
 
@@ -411,61 +412,77 @@
         // AUTHENTICATION
         // ==========================================
         const auth = {
-            checkSession: async () => {
-                try {
-                    state.user = await account.get();
-                    notesApp.fetchNotes();
-                    router.navigate('home');
-                } catch (e) {
-                    router.navigate('login');
-                }
+            init: () => {
+                firebaseAuth.onAuthStateChanged((user) => {
+                    if (user) {
+                        state.user = user;
+                        router.navigate('home');
+                        notesApp.listenForNotes();
+                    } else {
+                        state.user = null;
+                        state.notes = [];
+                        router.navigate('login');
+                        // Fake splash delay for first load only
+                        setTimeout(() => {
+                            const splash = document.getElementById('splash-view');
+                            if(splash.classList.contains('active') && !state.user) {
+                                router.navigate('login');
+                            }
+                        }, 1000);
+                    }
+                });
             },
-            login: async (email, password) => {
-                try {
-                    await account.createEmailPasswordSession(email, password);
-                    await auth.checkSession();
-                } catch (e) {
-                    ui.showToast(e.message);
-                }
+            login: (email, password) => {
+                firebaseAuth.signInWithEmailAndPassword(email, password)
+                    .catch((error) => ui.showToast(error.message));
             },
-            signup: async (email, password, name) => {
-                try {
-                    await account.create(Appwrite.ID.unique(), email, password, name);
-                    await auth.login(email, password);
-                } catch (e) {
-                    ui.showToast(e.message);
-                }
+            signup: (email, password, name) => {
+                firebaseAuth.createUserWithEmailAndPassword(email, password)
+                    .then((userCredential) => {
+                        // Optional: update profile with name
+                        userCredential.user.updateProfile({ displayName: name });
+                        ui.showToast("Account created!");
+                    })
+                    .catch((error) => ui.showToast(error.message));
             },
-            logout: async () => {
-                try {
-                    await account.deleteSession('current');
-                    state.user = null;
-                    router.navigate('login');
-                } catch (e) {
-                    ui.showToast('Logout failed');
-                }
+            logout: () => {
+                firebaseAuth.signOut().then(() => {
+                    ui.showToast('Logged out');
+                });
             }
         };
 
         // ==========================================
-        // NOTES LOGIC
+        // NOTES LOGIC (Realtime Database)
         // ==========================================
         const notesApp = {
-            fetchNotes: async () => {
-                try {
-                    const response = await databases.listDocuments(
-                        CONFIG.dbId,
-                        CONFIG.collectionId,
-                        [
-                            Appwrite.Query.equal('userId', state.user.$id),
-                            Appwrite.Query.orderDesc('createdAt')
-                        ]
-                    );
-                    state.notes = response.documents;
+            listenForNotes: () => {
+                if (!state.user) return;
+                
+                const userNotesRef = db.ref('users/' + state.user.uid + '/notes');
+                
+                // Realtime Listener
+                userNotesRef.on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    const notesArray = [];
+                    
+                    if (data) {
+                        for (const key in data) {
+                            notesArray.push({
+                                id: key,
+                                ...data[key]
+                            });
+                        }
+                    }
+                    
+                    // Sort by createdAt (descending)
+                    notesArray.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                    
+                    state.notes = notesArray;
                     notesApp.renderList(state.notes);
-                } catch (e) {
-                    ui.showToast('Failed to load notes');
-                }
+                }, (error) => {
+                    ui.showToast("Error loading notes");
+                });
             },
 
             renderList: (notes) => {
@@ -495,8 +512,15 @@
             },
 
             openEditor: (note = null) => {
-                state.currentNote = note;
-                state.isEditing = !!note;
+                if (note) {
+                    state.currentNote = note;
+                    state.currentNoteId = note.id;
+                    state.isEditing = true;
+                } else {
+                    state.currentNote = null;
+                    state.currentNoteId = null;
+                    state.isEditing = false;
+                }
                 
                 const titleInput = document.getElementById('note-title');
                 const contentInput = document.getElementById('note-content');
@@ -505,7 +529,7 @@
 
                 if (note) {
                     titleInput.value = note.title;
-                    contentInput.value = note.content; // Content is already unlocked if we are here
+                    contentInput.value = note.content; 
                     lockBtn.innerHTML = note.locked ? '<i class="material-icons">lock</i>' : '<i class="material-icons">lock_open</i>';
                     delBtn.style.display = 'block';
                 } else {
@@ -525,7 +549,7 @@
                 }
             },
 
-            saveNote: async () => {
+            saveNote: () => {
                 const title = document.getElementById('note-title').value;
                 const content = document.getElementById('note-content').value;
                 
@@ -533,66 +557,57 @@
 
                 const isLocked = state.currentNote ? state.currentNote.locked : false;
                 const passcode = state.currentNote ? state.currentNote.passcode : null;
-
-                const data = {
+                
+                const noteData = {
                     title,
                     content,
                     locked: isLocked,
-                    passcode: passcode, // Keep existing passcode logic
-                    createdAt: state.isEditing ? state.currentNote.createdAt : new Date().toISOString(),
-                    userId: state.user.$id
+                    passcode: passcode,
+                    createdAt: state.isEditing ? state.currentNote.createdAt : new Date().toISOString()
                 };
 
-                try {
-                    if (state.isEditing) {
-                        await databases.updateDocument(CONFIG.dbId, CONFIG.collectionId, state.currentNote.$id, data);
-                    } else {
-                        // Creating new note
-                         await databases.createDocument(
-                            CONFIG.dbId, 
-                            CONFIG.collectionId, 
-                            Appwrite.ID.unique(), 
-                            data,
-                            [
-                                Appwrite.Permission.read(Appwrite.Role.user(state.user.$id)),
-                                Appwrite.Permission.update(Appwrite.Role.user(state.user.$id)),
-                                Appwrite.Permission.delete(Appwrite.Role.user(state.user.$id)),
-                            ]
-                        );
-                    }
-                    ui.showToast('Note saved');
-                    await notesApp.fetchNotes();
-                    router.navigate('home');
-                } catch (e) {
-                    console.error(e);
-                    ui.showToast('Error saving note');
+                const userRef = db.ref('users/' + state.user.uid + '/notes');
+
+                if (state.isEditing) {
+                    userRef.child(state.currentNoteId).update(noteData)
+                        .then(() => {
+                            ui.showToast('Note updated');
+                            router.navigate('home');
+                        })
+                        .catch(e => ui.showToast(e.message));
+                } else {
+                    userRef.push(noteData)
+                        .then(() => {
+                            ui.showToast('Note created');
+                            router.navigate('home');
+                        })
+                        .catch(e => ui.showToast(e.message));
                 }
             },
 
-            confirmDelete: async () => {
+            confirmDelete: () => {
                 if(confirm("Delete this note?")) {
-                    try {
-                        await databases.deleteDocument(CONFIG.dbId, CONFIG.collectionId, state.currentNote.$id);
-                        await notesApp.fetchNotes();
-                        router.navigate('home');
-                        ui.showToast('Note deleted');
-                    } catch (e) {
-                        ui.showToast('Error deleting note');
-                    }
+                    db.ref('users/' + state.user.uid + '/notes/' + state.currentNoteId).remove()
+                        .then(() => {
+                            ui.showToast('Note deleted');
+                            router.navigate('home');
+                        })
+                        .catch(e => ui.showToast(e.message));
                 }
             },
 
             // Locking Features
             toggleLockUI: () => {
                 const lockBtn = document.getElementById('btn-lock');
-                // If currently locked, we are unlocking (removing pass)
                 if (state.currentNote && state.currentNote.locked) {
+                    // Unlock
+                    if(!state.currentNote) state.currentNote = {};
                     state.currentNote.locked = false;
                     state.currentNote.passcode = null;
                     lockBtn.innerHTML = '<i class="material-icons">lock_open</i>';
-                    ui.showToast('Note Unlocked');
+                    ui.showToast('Note Unlocked (Save to apply)');
                 } else {
-                    // We are locking, ask for new pin
+                    // Lock
                     notesApp.setNewPasscode();
                 }
             },
@@ -607,7 +622,6 @@
                     const pin = document.getElementById('passcode-input').value;
                     if (pin.length !== 4) { ui.showToast('Enter 4 digits'); return; }
                     
-                    // Update temp state
                     if (!state.currentNote) state.currentNote = {};
                     state.currentNote.locked = true;
                     state.currentNote.passcode = pin;
@@ -666,19 +680,16 @@
             notesApp.renderList(filtered);
         };
 
-        // Service Worker Reg
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js');
-        }
-
         // Boot
         window.onload = () => {
             themeManager.init();
-            setTimeout(() => {
-                auth.checkSession();
-            }, 1500); // Fake splash delay for UX
+            auth.init(); // Starts the auth listener
         };
 
+        // Service Worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js').catch(console.log);
+        }
     </script>
 </body>
 </html>

@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Notebook</title>
+    <link rel="manifest" href="manifest.json">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <!-- Appwrite SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/appwrite@13.0.0"></script>
+
+    <style>
+        :root {
+            --primary: #6200ee;
+            --primary-dark: #3700b3;
+            --secondary: #03dac6;
+            --bg-color: #f5f5f5;
+            --surface: #ffffff;
+            --text-primary: #000000;
+            --text-secondary: #666666;
+            --error: #b00020;
+            --shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        [data-theme="dark"] {
+            --primary: #bb86fc;
+            --primary-dark: #3700b3;
+            --secondary: #03dac6;
+            --bg-color: #121212;
+            --surface: #1e1e1e;
+            --text-primary: #ffffff;
+            --text-secondary: #b0b0b0;
+            --shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        * { box-sizing: border-box; tap-highlight-color: transparent; }
+        body {
+            margin: 0;
+            font-family: 'Roboto', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+            transition: background 0.3s;
+        }
+
+        /* Views */
+        .view {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: none;
+            flex-direction: column;
+            overflow-y: auto;
+            background: var(--bg-color);
+        }
+        .view.active { display: flex; animation: fadeIn 0.3s; }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Splash */
+        #splash-view {
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+            background: var(--primary);
+        }
+        .splash-logo { font-size: 3rem; color: white; margin-bottom: 20px; }
+        .loader {
+            width: 48px; height: 48px;
+            border: 5px solid #FFF;
+            border-bottom-color: transparent;
+            border-radius: 50%;
+            animation: rotation 1s linear infinite;
+        }
+        @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Auth */
+        .auth-container {
+            padding: 32px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: 100%;
+        }
+        .input-group { position: relative; margin-bottom: 24px; }
+        .input-field {
+            width: 100%;
+            padding: 12px 0;
+            font-size: 16px;
+            color: var(--text-primary);
+            border: none;
+            border-bottom: 1px solid var(--text-secondary);
+            outline: none;
+            background: transparent;
+            transition: 0.3s;
+        }
+        .input-field:focus { border-bottom: 2px solid var(--primary); }
+        .input-label {
+            position: absolute;
+            top: 12px; left: 0;
+            color: var(--text-secondary);
+            pointer-events: none;
+            transition: 0.3s ease all;
+        }
+        .input-field:focus ~ .input-label,
+        .input-field:valid ~ .input-label {
+            top: -10px; font-size: 12px; color: var(--primary);
+        }
+        .btn {
+            background: var(--primary);
+            color: #fff;
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            font-weight: 500;
+            text-transform: uppercase;
+            cursor: pointer;
+            box-shadow: var(--shadow);
+            margin-top: 16px;
+        }
+        .btn-text {
+            background: transparent;
+            color: var(--primary);
+            box-shadow: none;
+            margin-top: 8px;
+        }
+
+        /* Home View */
+        header {
+            background: var(--surface);
+            padding: 16px;
+            box-shadow: var(--shadow);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        h1 { margin: 0; font-size: 20px; }
+        .search-bar {
+            padding: 16px;
+        }
+        .search-input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: none;
+            background: rgba(128,128,128,0.1);
+            color: var(--text-primary);
+            outline: none;
+        }
+        
+        /* Note Cards */
+        #notes-list { padding: 8px 16px 80px 16px; }
+        .note-card {
+            background: var(--surface);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: var(--shadow);
+            transition: transform 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+        .note-card:active { transform: scale(0.98); }
+        .note-title { font-weight: 700; margin-bottom: 8px; font-size: 18px; }
+        .note-preview { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .note-lock-icon { position: absolute; top: 16px; right: 16px; color: var(--text-secondary); }
+        
+        /* FAB */
+        .fab {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            background: var(--primary);
+            border-radius: 50%;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            cursor: pointer;
+            z-index: 20;
+            transition: transform 0.2s;
+        }
+        .fab:active { transform: scale(0.9); }
+
+        /* Editor */
+        #editor-view { background: var(--surface); }
+        .editor-header {
+            display: flex; justify-content: space-between; padding: 16px; align-items: center;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+        .editor-title {
+            width: 100%; font-size: 22px; border: none; outline: none; background: transparent; color: var(--text-primary); font-weight: bold;
+        }
+        .editor-content {
+            flex: 1; padding: 16px; border: none; outline: none; resize: none; background: transparent; color: var(--text-primary); font-size: 16px; line-height: 1.5; font-family: 'Roboto', sans-serif;
+        }
+        .toolbar { display: flex; gap: 16px; color: var(--text-secondary); }
+
+        /* Modals */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 100;
+            display: none; align-items: center; justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: var(--surface); width: 80%; max-width: 320px;
+            padding: 24px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        .modal h3 { margin-top: 0; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 16px; margin-top: 24px; }
+        .btn-flat { background: transparent; border: none; color: var(--primary); font-weight: bold; cursor: pointer; }
+
+        /* Utilities */
+        .hidden { display: none !important; }
+        .icon-btn { background: none; border: none; color: inherit; cursor: pointer; }
+        #toast {
+            visibility: hidden; min-width: 250px; background-color: #333; color: #fff; text-align: center;
+            border-radius: 2px; padding: 16px; position: fixed; z-index: 99; left: 50%; bottom: 30px;
+            transform: translateX(-50%); font-size: 14px;
+        }
+        #toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
+        @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+        @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+
+    </style>
+</head>
+<body>
+
+    <!-- Splash Screen -->
+    <div id="splash-view" class="view active">
+        <div class="splash-logo">Notebook</div>
+        <div class="loader"></div>
+    </div>
+
+    <!-- Login View -->
+    <div id="login-view" class="view">
+        <div class="auth-container">
+            <h2 style="color: var(--primary);">Welcome Back</h2>
+            <form id="login-form">
+                <div class="input-group">
+                    <input type="email" id="login-email" class="input-field" required>
+                    <label class="input-label">Email</label>
+                </div>
+                <div class="input-group">
+                    <input type="password" id="login-password" class="input-field" required>
+                    <label class="input-label">Password</label>
+                </div>
+                <button type="submit" class="btn">Login</button>
+            </form>
+            <button class="btn btn-text" onclick="router.navigate('signup')">Create Account</button>
+        </div>
+    </div>
+
+    <!-- Signup View -->
+    <div id="signup-view" class="view">
+        <div class="auth-container">
+            <h2 style="color: var(--primary);">Create Account</h2>
+            <form id="signup-form">
+                <div class="input-group">
+                    <input type="text" id="signup-name" class="input-field" required>
+                    <label class="input-label">Full Name</label>
+                </div>
+                <div class="input-group">
+                    <input type="email" id="signup-email" class="input-field" required>
+                    <label class="input-label">Email</label>
+                </div>
+                <div class="input-group">
+                    <input type="password" id="signup-password" class="input-field" required minlength="8">
+                    <label class="input-label">Password</label>
+                </div>
+                <button type="submit" class="btn">Sign Up</button>
+            </form>
+            <button class="btn btn-text" onclick="router.navigate('login')">Already have an account?</button>
+        </div>
+    </div>
+
+    <!-- Home View -->
+    <div id="home-view" class="view">
+        <header>
+            <h1>Notebook</h1>
+            <div>
+                <button class="icon-btn" onclick="themeManager.toggle()"><i class="material-icons">brightness_4</i></button>
+                <button class="icon-btn" onclick="auth.logout()" style="margin-left: 10px;"><i class="material-icons">logout</i></button>
+            </div>
+        </header>
+        <div class="search-bar">
+            <input type="text" id="search-input" class="search-input" placeholder="Search notes...">
+        </div>
+        <div id="notes-list">
+            <!-- Notes injected here -->
+            <div style="text-align: center; margin-top: 40px; color: var(--text-secondary);">Loading notes...</div>
+        </div>
+        <div class="fab" onclick="notesApp.openEditor()">
+            <i class="material-icons">add</i>
+        </div>
+    </div>
+
+    <!-- Editor View -->
+    <div id="editor-view" class="view">
+        <div class="editor-header">
+            <button class="icon-btn" onclick="router.navigate('home')"><i class="material-icons">arrow_back</i></button>
+            <div class="toolbar">
+                <button class="icon-btn" id="btn-lock" onclick="notesApp.toggleLockUI()"><i class="material-icons">lock_open</i></button>
+                <button class="icon-btn" id="btn-delete" onclick="notesApp.confirmDelete()"><i class="material-icons">delete</i></button>
+                <button class="icon-btn" onclick="notesApp.saveNote()"><i class="material-icons">check</i></button>
+            </div>
+        </div>
+        <div style="padding: 0 16px;">
+            <input type="text" id="note-title" class="editor-title" placeholder="Title">
+        </div>
+        <textarea id="note-content" class="editor-content" placeholder="Start typing..."></textarea>
+    </div>
+
+    <!-- Passcode Modal -->
+    <div id="modal-passcode" class="modal-overlay">
+        <div class="modal">
+            <h3 id="passcode-title">Enter Passcode</h3>
+            <div class="input-group">
+                <input type="password" id="passcode-input" class="input-field" placeholder="4-digit PIN" maxlength="4" style="text-align: center; letter-spacing: 8px;">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-flat" onclick="ui.closeModals()">CANCEL</button>
+                <button class="btn-flat" id="passcode-confirm-btn">CONFIRM</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast"></div>
+
+    <script>
+        // ==========================================
+        // CONFIGURATION & SETUP
+        // ==========================================
+        const CONFIG = {
+            endpoint: 'https://nyc.cloud.appwrite.io/v1',
+            projectId: '6940258800299988d182',
+            dbId: 'notesDB',
+            collectionId: 'notes'
+        };
+
+        const client = new Appwrite.Client()
+            .setEndpoint(CONFIG.endpoint)
+            .setProject(CONFIG.projectId);
+
+        const account = new Appwrite.Account(client);
+        const databases = new Appwrite.Databases(client);
+
+        // ==========================================
+        // STATE MANAGEMENT
+        // ==========================================
+        const state = {
+            user: null,
+            notes: [],
+            currentNote: null,
+            isEditing: false
+        };
+
+        // ==========================================
+        // ROUTER
+        // ==========================================
+        const router = {
+            navigate: (viewId) => {
+                document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+                document.getElementById(viewId + '-view').classList.add('active');
+            }
+        };
+
+        // ==========================================
+        // UI HELPERS
+        // ==========================================
+        const ui = {
+            showToast: (msg) => {
+                const x = document.getElementById("toast");
+                x.className = "show";
+                x.innerText = msg;
+                setTimeout(() => { x.className = x.className.replace("show", ""); }, 3000);
+            },
+            closeModals: () => {
+                document.querySelectorAll('.modal-overlay').forEach(el => el.classList.remove('active'));
+                document.getElementById('passcode-input').value = '';
+            },
+            toggleLoader: (show) => {
+                // Simple inline loader logic if needed
+            }
+        };
+
+        const themeManager = {
+            init: () => {
+                const saved = localStorage.getItem('theme') || 'light';
+                document.documentElement.setAttribute('data-theme', saved);
+            },
+            toggle: () => {
+                const current = document.documentElement.getAttribute('data-theme');
+                const next = current === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                localStorage.setItem('theme', next);
+            }
+        };
+
+        // ==========================================
+        // AUTHENTICATION
+        // ==========================================
+        const auth = {
+            checkSession: async () => {
+                try {
+                    state.user = await account.get();
+                    notesApp.fetchNotes();
+                    router.navigate('home');
+                } catch (e) {
+                    router.navigate('login');
+                }
+            },
+            login: async (email, password) => {
+                try {
+                    await account.createEmailPasswordSession(email, password);
+                    await auth.checkSession();
+                } catch (e) {
+                    ui.showToast(e.message);
+                }
+            },
+            signup: async (email, password, name) => {
+                try {
+                    await account.create(Appwrite.ID.unique(), email, password, name);
+                    await auth.login(email, password);
+                } catch (e) {
+                    ui.showToast(e.message);
+                }
+            },
+            logout: async () => {
+                try {
+                    await account.deleteSession('current');
+                    state.user = null;
+                    router.navigate('login');
+                } catch (e) {
+                    ui.showToast('Logout failed');
+                }
+            }
+        };
+
+        // ==========================================
+        // NOTES LOGIC
+        // ==========================================
+        const notesApp = {
+            fetchNotes: async () => {
+                try {
+                    const response = await databases.listDocuments(
+                        CONFIG.dbId,
+                        CONFIG.collectionId,
+                        [
+                            Appwrite.Query.equal('userId', state.user.$id),
+                            Appwrite.Query.orderDesc('createdAt')
+                        ]
+                    );
+                    state.notes = response.documents;
+                    notesApp.renderList(state.notes);
+                } catch (e) {
+                    ui.showToast('Failed to load notes');
+                }
+            },
+
+            renderList: (notes) => {
+                const container = document.getElementById('notes-list');
+                container.innerHTML = '';
+                
+                if (notes.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; margin-top: 40px; color: var(--text-secondary);">No notes yet. Tap + to create.</div>';
+                    return;
+                }
+
+                notes.forEach(note => {
+                    const card = document.createElement('div');
+                    card.className = 'note-card';
+                    const isLocked = note.locked;
+                    const preview = isLocked ? 'Locked Content' : (note.content.substring(0, 50) + '...');
+                    const icon = isLocked ? '<i class="material-icons note-lock-icon">lock</i>' : '';
+                    
+                    card.innerHTML = `
+                        <div class="note-title">${note.title}</div>
+                        <div class="note-preview">${preview}</div>
+                        ${icon}
+                    `;
+                    card.onclick = () => notesApp.openNote(note);
+                    container.appendChild(card);
+                });
+            },
+
+            openEditor: (note = null) => {
+                state.currentNote = note;
+                state.isEditing = !!note;
+                
+                const titleInput = document.getElementById('note-title');
+                const contentInput = document.getElementById('note-content');
+                const lockBtn = document.getElementById('btn-lock');
+                const delBtn = document.getElementById('btn-delete');
+
+                if (note) {
+                    titleInput.value = note.title;
+                    contentInput.value = note.content; // Content is already unlocked if we are here
+                    lockBtn.innerHTML = note.locked ? '<i class="material-icons">lock</i>' : '<i class="material-icons">lock_open</i>';
+                    delBtn.style.display = 'block';
+                } else {
+                    titleInput.value = '';
+                    contentInput.value = '';
+                    lockBtn.innerHTML = '<i class="material-icons">lock_open</i>';
+                    delBtn.style.display = 'none';
+                }
+                router.navigate('editor');
+            },
+
+            openNote: (note) => {
+                if (note.locked) {
+                    notesApp.promptPasscode(note);
+                } else {
+                    notesApp.openEditor(note);
+                }
+            },
+
+            saveNote: async () => {
+                const title = document.getElementById('note-title').value;
+                const content = document.getElementById('note-content').value;
+                
+                if (!title) { ui.showToast('Title required'); return; }
+
+                const isLocked = state.currentNote ? state.currentNote.locked : false;
+                const passcode = state.currentNote ? state.currentNote.passcode : null;
+
+                const data = {
+                    title,
+                    content,
+                    locked: isLocked,
+                    passcode: passcode, // Keep existing passcode logic
+                    createdAt: state.isEditing ? state.currentNote.createdAt : new Date().toISOString(),
+                    userId: state.user.$id
+                };
+
+                try {
+                    if (state.isEditing) {
+                        await databases.updateDocument(CONFIG.dbId, CONFIG.collectionId, state.currentNote.$id, data);
+                    } else {
+                        // Creating new note
+                         await databases.createDocument(
+                            CONFIG.dbId, 
+                            CONFIG.collectionId, 
+                            Appwrite.ID.unique(), 
+                            data,
+                            [
+                                Appwrite.Permission.read(Appwrite.Role.user(state.user.$id)),
+                                Appwrite.Permission.update(Appwrite.Role.user(state.user.$id)),
+                                Appwrite.Permission.delete(Appwrite.Role.user(state.user.$id)),
+                            ]
+                        );
+                    }
+                    ui.showToast('Note saved');
+                    await notesApp.fetchNotes();
+                    router.navigate('home');
+                } catch (e) {
+                    console.error(e);
+                    ui.showToast('Error saving note');
+                }
+            },
+
+            confirmDelete: async () => {
+                if(confirm("Delete this note?")) {
+                    try {
+                        await databases.deleteDocument(CONFIG.dbId, CONFIG.collectionId, state.currentNote.$id);
+                        await notesApp.fetchNotes();
+                        router.navigate('home');
+                        ui.showToast('Note deleted');
+                    } catch (e) {
+                        ui.showToast('Error deleting note');
+                    }
+                }
+            },
+
+            // Locking Features
+            toggleLockUI: () => {
+                const lockBtn = document.getElementById('btn-lock');
+                // If currently locked, we are unlocking (removing pass)
+                if (state.currentNote && state.currentNote.locked) {
+                    state.currentNote.locked = false;
+                    state.currentNote.passcode = null;
+                    lockBtn.innerHTML = '<i class="material-icons">lock_open</i>';
+                    ui.showToast('Note Unlocked');
+                } else {
+                    // We are locking, ask for new pin
+                    notesApp.setNewPasscode();
+                }
+            },
+
+            setNewPasscode: () => {
+                const modal = document.getElementById('modal-passcode');
+                document.getElementById('passcode-title').innerText = "Set Note Passcode";
+                modal.classList.add('active');
+                
+                const confirmBtn = document.getElementById('passcode-confirm-btn');
+                confirmBtn.onclick = () => {
+                    const pin = document.getElementById('passcode-input').value;
+                    if (pin.length !== 4) { ui.showToast('Enter 4 digits'); return; }
+                    
+                    // Update temp state
+                    if (!state.currentNote) state.currentNote = {};
+                    state.currentNote.locked = true;
+                    state.currentNote.passcode = pin;
+                    
+                    document.getElementById('btn-lock').innerHTML = '<i class="material-icons">lock</i>';
+                    ui.closeModals();
+                    ui.showToast('Note Locked (Save to apply)');
+                };
+            },
+
+            promptPasscode: (note) => {
+                const modal = document.getElementById('modal-passcode');
+                document.getElementById('passcode-title').innerText = "Unlock Note";
+                modal.classList.add('active');
+
+                const confirmBtn = document.getElementById('passcode-confirm-btn');
+                confirmBtn.onclick = () => {
+                    const pin = document.getElementById('passcode-input').value;
+                    if (pin === note.passcode) {
+                        ui.closeModals();
+                        notesApp.openEditor(note);
+                    } else {
+                        ui.showToast('Incorrect Passcode');
+                        document.getElementById('passcode-input').value = '';
+                    }
+                };
+            }
+        };
+
+        // ==========================================
+        // EVENT LISTENERS & INIT
+        // ==========================================
+        document.getElementById('login-form').onsubmit = (e) => {
+            e.preventDefault();
+            auth.login(
+                document.getElementById('login-email').value,
+                document.getElementById('login-password').value
+            );
+        };
+
+        document.getElementById('signup-form').onsubmit = (e) => {
+            e.preventDefault();
+            auth.signup(
+                document.getElementById('signup-email').value,
+                document.getElementById('signup-password').value,
+                document.getElementById('signup-name').value
+            );
+        };
+
+        document.getElementById('search-input').onkeyup = (e) => {
+            const term = e.target.value.toLowerCase();
+            const filtered = state.notes.filter(n => 
+                n.title.toLowerCase().includes(term) || 
+                (!n.locked && n.content.toLowerCase().includes(term))
+            );
+            notesApp.renderList(filtered);
+        };
+
+        // Service Worker Reg
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js');
+        }
+
+        // Boot
+        window.onload = () => {
+            themeManager.init();
+            setTimeout(() => {
+                auth.checkSession();
+            }, 1500); // Fake splash delay for UX
+        };
+
+    </script>
+</body>
+</html>
